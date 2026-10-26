@@ -3,7 +3,6 @@ import React, { useEffect, useRef, useState } from 'react';
 const STEPS = 16;
 const INITIAL_BARS = 4;
 const MAX_BARS = 64;
-const SONGS_STORAGE_KEY = 'nightshift-songs';
 const DRUMS = [
   { name: 'KICK', key: 'C1', color: '#ff2e93' },
   { name: 'SNARE', key: 'D1', color: '#ff6bb5' },
@@ -14,6 +13,43 @@ const DRUMS = [
 const NOTES = ['C3', 'C#3', 'D3', 'D#3', 'E3', 'F3', 'F#3', 'G3', 'G#3', 'A3', 'A#3', 'B3', 'C4', 'C#4', 'D4', 'D#4']
   .map((name, index) => ({ name, frequency: 130.81 * 2 ** (index / 12) }));
 const NOTE_KEYS = ['a', 'w', 's', 'e', 'd', 'f', 't', 'g', 'y', 'h', 'u', 'j', 'k', 'o', 'l', 'p'];
+
+function StudioMark({ className = '' }) {
+  return <svg className={className} viewBox="0 0 100 100" fill="none" aria-hidden="true">
+    <circle className="mark-orbit mark-orbit-outer" cx="50" cy="50" r="44" />
+    <circle className="mark-orbit mark-orbit-inner" cx="50" cy="50" r="35" />
+    <path className="mark-crosshair" d="M50 2v12M50 86v12M2 50h12M86 50h12" />
+    <path className="mark-diamond" d="M50 17 78 33v34L50 83 22 67V33L50 17Z" />
+    <path className="mark-monogram" d="M38 65V35l24 30V35" />
+    <circle className="mark-node" cx="50" cy="11" r="2.2" />
+    <circle className="mark-node" cx="89" cy="50" r="2.2" />
+    <circle className="mark-node" cx="50" cy="89" r="2.2" />
+    <circle className="mark-node" cx="11" cy="50" r="2.2" />
+  </svg>;
+}
+
+async function apiRequest(path, options = {}) {
+  let response;
+  try {
+    response = await fetch(path, {
+      ...options,
+      credentials: 'same-origin',
+      headers: {
+        ...(options.body ? { 'Content-Type': 'application/json' } : {}),
+        ...options.headers
+      }
+    });
+  } catch (error) {
+    throw new Error(`Could not reach the Nightshift account server: ${error.message}`);
+  }
+  const result = await response.json();
+  if (!response.ok) {
+    const error = new Error(result.error || `Request failed (${response.status}).`);
+    error.status = response.status;
+    throw error;
+  }
+  return result;
+}
 
 const patterns = {
   kick: [1,0,0,0,1,0,0,0,1,0,0,0,1,0,0,0],
@@ -31,10 +67,24 @@ const PRESETS = {
 };
 
 function App() {
+  const [showIntro, setShowIntro] = useState(true);
+  const [introClosing, setIntroClosing] = useState(false);
+  const [logoPinned, setLogoPinned] = useState(false);
+  const [authUser, setAuthUser] = useState(null);
+  const [authReady, setAuthReady] = useState(false);
+  const [authMode, setAuthMode] = useState('login');
+  const [recoveryMode, setRecoveryMode] = useState(false);
+  const [authUsername, setAuthUsername] = useState('');
+  const [authPassword, setAuthPassword] = useState('');
+  const [authBusy, setAuthBusy] = useState(false);
+  const [authError, setAuthError] = useState('');
+  const [operationLoading, setOperationLoading] = useState(null);
+  const [operationClosing, setOperationClosing] = useState(false);
   const [grid, setGrid] = useState(() => initialGrid.map(row => Array.from({ length: INITIAL_BARS * STEPS }, (_, step) => row[step % STEPS])));
   const [synthGrid, setSynthGrid] = useState(() => NOTES.map(() => Array(INITIAL_BARS * STEPS).fill(false)));
   const [bpm, setBpm] = useState(124);
   const [playing, setPlaying] = useState(false);
+  const [metronome, setMetronome] = useState(false);
   const [currentStep, setCurrentStep] = useState(-1);
   const [recording, setRecording] = useState(false);
   const [recordings, setRecordings] = useState([]);
@@ -44,7 +94,12 @@ function App() {
   const [songId, setSongId] = useState(null);
   const [songs, setSongs] = useState([]);
   const [showLibrary, setShowLibrary] = useState(false);
-  const [songsLoaded, setSongsLoaded] = useState(false);
+  const [showGallery, setShowGallery] = useState(false);
+  const [publicSongs, setPublicSongs] = useState([]);
+  const [galleryLoading, setGalleryLoading] = useState(false);
+  const [galleryError, setGalleryError] = useState('');
+  const [sharingSongId, setSharingSongId] = useState(null);
+  const [libraryReady, setLibraryReady] = useState(false);
   const [master, setMaster] = useState(82);
   const [swing, setSwing] = useState(0);
   const [bars, setBars] = useState(INITIAL_BARS);
@@ -58,32 +113,110 @@ function App() {
   const mediaRecorderRef = useRef(null);
   const chunksRef = useRef([]);
   const fileInputRef = useRef(null);
+  const recoveryFileInputRef = useRef(null);
   const songRef = useRef({ grid, synthGrid, muted, bars });
   const instrumentRef = useRef(instrument);
+  const metronomeRef = useRef(metronome);
+  const tapTimesRef = useRef([]);
+  const introAutoTimerRef = useRef(null);
+  const introExitTimerRef = useRef(null);
+  const operationStartTimerRef = useRef(null);
+  const operationExitTimerRef = useRef(null);
   const totalSteps = bars * STEPS;
 
-  useEffect(() => {
+  const closeIntro = () => {
+    window.clearTimeout(introAutoTimerRef.current);
+    window.clearTimeout(introExitTimerRef.current);
+    setLogoPinned(false);
+    setIntroClosing(true);
+    introExitTimerRef.current = window.setTimeout(() => setShowIntro(false), 500);
+  };
+
+  const showStartingLogo = () => {
+    window.clearTimeout(introAutoTimerRef.current);
+    window.clearTimeout(introExitTimerRef.current);
+    setIntroClosing(false);
+    setLogoPinned(true);
+    setShowIntro(true);
+  };
+
+  const runWithLoading = async (title, detail, work) => {
+    const startedAt = performance.now();
+    setOperationClosing(false);
+    setOperationLoading({ title, detail });
     try {
-      const storedSongs = JSON.parse(localStorage.getItem(SONGS_STORAGE_KEY) || '[]');
-      if (!Array.isArray(storedSongs)) throw new Error('Saved song library must be a list.');
-      setSongs(storedSongs);
+      await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+      await work();
     } catch (error) {
-      console.error('Could not read the saved song library.', error);
-      setToast('Could not read saved songs from this browser');
+      console.error(`${title} failed.`, error);
+      notify(`${title.charAt(0)}${title.slice(1).toLowerCase()} failed: ${error.message || 'Unexpected error'}`);
     } finally {
-      setSongsLoaded(true);
+      const remaining = Math.max(0, 700 - (performance.now() - startedAt));
+      operationStartTimerRef.current = window.setTimeout(() => {
+        setOperationClosing(true);
+        operationExitTimerRef.current = window.setTimeout(() => {
+          setOperationLoading(null);
+          setOperationClosing(false);
+        }, 400);
+      }, remaining);
     }
+  };
+
+  useEffect(() => {
+    const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    introAutoTimerRef.current = window.setTimeout(closeIntro, reducedMotion ? 700 : 3200);
+    const handleKeyDown = event => { if (event.key === 'Escape') closeIntro(); };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      window.clearTimeout(introAutoTimerRef.current);
+      window.clearTimeout(introExitTimerRef.current);
+      window.clearTimeout(operationStartTimerRef.current);
+      window.clearTimeout(operationExitTimerRef.current);
+      window.removeEventListener('keydown', handleKeyDown);
+    };
   }, []);
 
   useEffect(() => {
-    if (!songsLoaded) return;
-    try {
-      localStorage.setItem(SONGS_STORAGE_KEY, JSON.stringify(songs));
-    } catch (error) {
-      console.error('Could not save the song library.', error);
-      setToast('Could not save songs in this browser');
-    }
-  }, [songs, songsLoaded]);
+    let cancelled = false;
+    const restoreSession = async () => {
+      try {
+        const { user } = await apiRequest('/api/session');
+        if (!user) return;
+        const { songs: accountSongs } = await apiRequest('/api/songs');
+        if (!Array.isArray(accountSongs)) throw new Error('The account song library is invalid.');
+        if (!cancelled) {
+          setSongs(accountSongs);
+          setLibraryReady(true);
+          setAuthUser(user);
+        }
+      } catch (error) {
+        if (!cancelled) setAuthError(error.message);
+      } finally {
+        if (!cancelled) setAuthReady(true);
+      }
+    };
+    restoreSession();
+    return () => { cancelled = true; };
+  }, []);
+
+  useEffect(() => {
+    if (!libraryReady || !authUser) return undefined;
+    const timeout = window.setTimeout(() => {
+      apiRequest('/api/songs', { method: 'PUT', body: JSON.stringify({ songs }) })
+        .catch(error => {
+          console.error('Could not sync the account song library.', error);
+          if (error.status === 401) {
+            setAuthUser(null);
+            setSongs([]);
+            setLibraryReady(false);
+            setAuthError('Your session expired. Sign in again to access your songs.');
+          } else {
+            setToast(`Could not sync songs: ${error.message}`);
+          }
+        });
+    }, 400);
+    return () => window.clearTimeout(timeout);
+  }, [songs, libraryReady, authUser]);
 
   useEffect(() => {
     songRef.current = { grid, synthGrid, muted, bars };
@@ -92,6 +225,10 @@ function App() {
   useEffect(() => {
     instrumentRef.current = instrument;
   }, [instrument]);
+
+  useEffect(() => {
+    metronomeRef.current = metronome;
+  }, [metronome]);
 
   const getAudio = () => {
     if (!audioRef.current) audioRef.current = new (window.AudioContext || window.webkitAudioContext)();
@@ -130,6 +267,20 @@ function App() {
     if (index === 4) playNoise(ctx, .16, 1200, .35);
   };
 
+  const playMetronomeClick = (accent = false) => {
+    const ctx = getAudio();
+    const oscillator = ctx.createOscillator();
+    const gain = ctx.createGain();
+    oscillator.type = 'sine';
+    oscillator.frequency.setValueAtTime(accent ? 1320 : 880, ctx.currentTime);
+    gain.gain.setValueAtTime(.0001, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(accent ? .16 : .1, ctx.currentTime + .003);
+    gain.gain.exponentialRampToValueAtTime(.0001, ctx.currentTime + .045);
+    oscillator.connect(gain).connect(ctx.destination);
+    oscillator.start();
+    oscillator.stop(ctx.currentTime + .05);
+  };
+
   const stop = () => {
     clearInterval(timerRef.current); timerRef.current = null; setPlaying(false); setCurrentStep(-1); stepRef.current = 0;
   };
@@ -137,6 +288,7 @@ function App() {
     const step = stepRef.current;
     setCurrentStep(step);
     const { grid: currentGrid, synthGrid: currentSynthGrid, muted: mutedTracks, bars: songBars } = songRef.current;
+    if (metronomeRef.current && step % 4 === 0) playMetronomeClick(step % STEPS === 0);
     currentGrid.forEach((row, drum) => { if (row[step] && !mutedTracks.includes(drum)) triggerDrum(drum); });
     currentSynthGrid.forEach((row, note) => { if (row[step]) playNote(NOTES[note].frequency, NOTES[note].name); });
     stepRef.current = (step + 1) % (STEPS * songBars);
@@ -169,6 +321,31 @@ function App() {
   };
   const clearPattern = () => setGrid(DRUMS.map(() => Array(bars * STEPS).fill(false)));
   const randomizePattern = () => setGrid(DRUMS.map((_, drum) => Array.from({ length: bars * STEPS }, (_, step) => drum === 0 ? step % 4 === 0 && Math.random() > .18 : Math.random() > (drum === 2 ? .48 : .8))));
+  const generateMelody = () => {
+    const scale = [0, 2, 4, 5, 7, 9, 11, 12, 14];
+    const melody = NOTES.map(() => Array(totalSteps).fill(false));
+    let note = 0;
+    for (let step = 0; step < totalSteps; step += 2) {
+      if (step % STEPS === 0) note = [0, 4, 2, 5][Math.floor(step / STEPS) % 4];
+      else if (Math.random() < .7) note = Math.max(0, Math.min(scale.length - 1, note + Math.floor(Math.random() * 5) - 2));
+      if (Math.random() < .78) melody[scale[note]][step] = true;
+    }
+    setSynthGrid(melody);
+    notify('New melody generated in C major');
+  };
+  const tapTempo = () => {
+    const now = performance.now();
+    const previous = tapTimesRef.current;
+    const taps = previous.length && now - previous[previous.length - 1] <= 2000 ? [...previous, now].slice(-5) : [now];
+    tapTimesRef.current = taps;
+    if (taps.length < 2) {
+      notify('Keep tapping to set tempo');
+      return;
+    }
+    const intervals = taps.slice(1).map((time, index) => time - taps[index]);
+    const average = intervals.reduce((sum, interval) => sum + interval, 0) / intervals.length;
+    setBpm(Math.min(240, Math.max(40, Math.round(60000 / average))));
+  };
   const toggleMute = index => setMuted(items => items.includes(index) ? items.filter(item => item !== index) : [...items, index]);
 
   const playNote = (frequency, key) => {
@@ -214,13 +391,13 @@ function App() {
   const getSongData = () => ({ projectName: projectName.trim() || 'Untitled Session', grid, synthGrid, bpm, kit, instrument, swing, bars, channelVolumes, master });
   const saveSong = () => {
     const id = songId || (window.crypto?.randomUUID ? window.crypto.randomUUID() : String(Date.now()));
-    const song = { id, ...getSongData(), updatedAt: new Date().toISOString() };
+    const song = { id, ...getSongData(), isPublic: songs.find(item => item.id === id)?.isPublic === true, updatedAt: new Date().toISOString() };
     setSongs(items => [song, ...items.filter(item => item.id !== id)]);
     setSongId(id);
     notify('Song saved to your library');
   };
-  const loadSong = song => {
-    setSongId(song.id);
+  const loadSong = (song, isCopy = false) => {
+    setSongId(isCopy ? null : song.id);
     setProjectName(song.projectName || 'Untitled Session');
     const songBars = Math.min(MAX_BARS, Math.max(1, Number(song.bars) || INITIAL_BARS));
     const songLength = songBars * STEPS;
@@ -235,9 +412,56 @@ function App() {
     setChannelVolumes(song.channelVolumes || [82, 78, 76, 72, 80]);
     setMaster(song.master ?? 82);
     setShowLibrary(false);
+    setShowGallery(false);
     notify(`${song.projectName || 'Song'} loaded`);
   };
-  const deleteSong = id => {
+  const openPublicGallery = async () => {
+    setShowLibrary(false);
+    setShowGallery(true);
+    setGalleryLoading(true);
+    setGalleryError('');
+    try {
+      const { songs: sharedSongs } = await apiRequest('/api/public-songs');
+      if (!Array.isArray(sharedSongs)) throw new Error('The public song gallery is invalid.');
+      setPublicSongs(sharedSongs);
+    } catch (error) {
+      setGalleryError(error.message);
+    } finally {
+      setGalleryLoading(false);
+    }
+  };
+  const setSongSharing = async (song, isPublic) => {
+    setSharingSongId(song.id);
+    try {
+      await apiRequest('/api/song-sharing', {
+        method: 'POST',
+        body: JSON.stringify({ songId: song.id, isPublic })
+      });
+      setSongs(items => items.map(item => item.id === song.id ? { ...item, isPublic } : item));
+      notify(isPublic ? 'Song published to the public gallery' : 'Song removed from the public gallery');
+      if (showGallery) await openPublicGallery();
+    } catch (error) {
+      notify(`Could not update song sharing: ${error.message}`);
+    } finally {
+      setSharingSongId(null);
+    }
+  };
+  const deleteSong = async id => {
+    const song = songs.find(item => item.id === id);
+    if (song?.isPublic) {
+      setSharingSongId(id);
+      try {
+        await apiRequest('/api/song-sharing', {
+          method: 'POST',
+          body: JSON.stringify({ songId: id, isPublic: false })
+        });
+      } catch (error) {
+        notify(`Could not remove song from the public gallery: ${error.message}`);
+        setSharingSongId(null);
+        return;
+      }
+      setSharingSongId(null);
+    }
     setSongs(items => items.filter(song => song.id !== id));
     if (songId === id) setSongId(null);
     notify('Song removed from your library');
@@ -257,37 +481,43 @@ function App() {
     setMaster(82);
     setShowLibrary(false);
   };
-  const downloadProject = () => {
+  const downloadProject = () => runWithLoading('EXPORTING PROJECT', 'Packing your session into a portable project file', () => {
     const blob = new Blob([JSON.stringify(getSongData(), null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob); const link = document.createElement('a'); link.href = url; link.download = `${projectName.replace(/\s+/g, '-').toLowerCase()}.nightshift.json`; link.click(); URL.revokeObjectURL(url);
-  };
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `${projectName.replace(/\s+/g, '-').toLowerCase()}.nightshift.json`;
+    link.click();
+    window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+    notify('Project exported');
+  });
+
   const importProject = event => {
-    const file = event.target.files[0]; if (!file) return;
-    const reader = new FileReader(); reader.onload = () => {
-      try {
-        const data = JSON.parse(reader.result);
-        if (!data || !Array.isArray(data.grid) || data.grid.length !== DRUMS.length || data.grid.some(row => !Array.isArray(row) || row.length < STEPS || row.length > MAX_BARS * STEPS)) throw new Error('Invalid song pattern');
-        const importedBars = Math.min(MAX_BARS, Math.max(1, Number(data.bars) || Math.ceil(data.grid[0].length / STEPS)));
-        const importedLength = importedBars * STEPS;
-        const normalizeRows = (rows, count) => Array.from({ length: count }, (_, row) => Array.from({ length: importedLength }, (_, step) => Boolean(rows?.[row]?.[step % (rows?.[row]?.length || STEPS)])));
-        setSongId(null);
-        setProjectName(data.projectName || 'Imported Session');
-        setGrid(normalizeRows(data.grid, DRUMS.length));
-        setSynthGrid(normalizeRows(data.synthGrid, NOTES.length));
-        setBpm(Number(data.bpm) || 124);
-        setKit(data.kit || 'Studio 808');
-        setInstrument(data.instrument || 'Synth');
-        setSwing(Number(data.swing) || 0);
-        setBars(importedBars);
-        setChannelVolumes(data.channelVolumes || [82, 78, 76, 72, 80]);
-        setMaster(data.master ?? 82);
-        notify('Project imported');
-      }
-      catch { alert('That project file could not be read.'); }
-    }; reader.readAsText(file); event.target.value = '';
+    const file = event.target.files[0];
+    if (!file) return;
+    event.target.value = '';
+    runWithLoading('IMPORTING PROJECT', `Reading ${file.name}`, async () => {
+      const data = JSON.parse(await file.text());
+      if (!data || !Array.isArray(data.grid) || data.grid.length !== DRUMS.length || data.grid.some(row => !Array.isArray(row) || row.length < STEPS || row.length > MAX_BARS * STEPS)) throw new Error('That project file could not be read.');
+      const importedBars = Math.min(MAX_BARS, Math.max(1, Number(data.bars) || Math.ceil(data.grid[0].length / STEPS)));
+      const importedLength = importedBars * STEPS;
+      const normalizeRows = (rows, count) => Array.from({ length: count }, (_, row) => Array.from({ length: importedLength }, (_, step) => Boolean(rows?.[row]?.[step % (rows?.[row]?.length || STEPS)])));
+      setSongId(null);
+      setProjectName(data.projectName || 'Imported Session');
+      setGrid(normalizeRows(data.grid, DRUMS.length));
+      setSynthGrid(normalizeRows(data.synthGrid, NOTES.length));
+      setBpm(Number(data.bpm) || 124);
+      setKit(data.kit || 'Studio 808');
+      setInstrument(data.instrument || 'Synth');
+      setSwing(Number(data.swing) || 0);
+      setBars(importedBars);
+      setChannelVolumes(data.channelVolumes || [82, 78, 76, 72, 80]);
+      setMaster(data.master ?? 82);
+      notify('Project imported');
+    });
   };
 
-  const exportWav = () => {
+  const exportWav = () => runWithLoading('RENDERING FULL SONG', `Mixing ${bars} bars of drums and ${instrument.toLowerCase()}`, () => {
     const sampleRate = 44100; const secondsPerStep = 60 / bpm / 4;
     const length = Math.floor(sampleRate * secondsPerStep * STEPS * bars); const data = new Float32Array(length);
     const addKick = start => {
@@ -319,17 +549,164 @@ function App() {
     view.setUint32(16,16,true); view.setUint16(20,1,true); view.setUint16(22,1,true); view.setUint32(24,sampleRate,true); view.setUint32(28,sampleRate*2,true); view.setUint16(32,2,true); view.setUint16(34,16,true);
     write(36,'data'); view.setUint32(40,length*2,true);
     for (let i=0;i<length;i++) { const sample=Math.max(-1,Math.min(1,data[i]*(master/100))); view.setInt16(44+i*2,sample<0?sample*32768:sample*32767,true); }
-    const url=URL.createObjectURL(new Blob([view],{type:'audio/wav'})); const link=document.createElement('a'); link.href=url; link.download=`${projectName.replace(/\s+/g,'-').toLowerCase()}-mix.wav`; link.click(); URL.revokeObjectURL(url);
+    const url=URL.createObjectURL(new Blob([view],{type:'audio/wav'})); const link=document.createElement('a'); link.href=url; link.download=`${projectName.replace(/\s+/g,'-').toLowerCase()}-mix.wav`; link.click(); window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+    notify('Full-song WAV exported');
+  });
+
+  const submitAuth = async event => {
+    event.preventDefault();
+    setAuthBusy(true);
+    setAuthError('');
+    try {
+      const endpoint = authMode === 'register' ? '/api/register' : '/api/login';
+      const { user } = await apiRequest(endpoint, {
+        method: 'POST',
+        body: JSON.stringify({ username: authUsername.trim(), password: authPassword })
+      });
+      const { songs: accountSongs } = await apiRequest('/api/songs');
+      if (!Array.isArray(accountSongs)) throw new Error('The account song library is invalid.');
+      setSongs(accountSongs);
+      setLibraryReady(true);
+      setAuthUser(user);
+      setAuthPassword('');
+    } catch (error) {
+      setAuthError(error.message);
+    } finally {
+      setAuthBusy(false);
+      setAuthReady(true);
+    }
   };
+
+  const recoverWithKeyFile = async event => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file) return;
+    setAuthBusy(true);
+    setAuthError('');
+    try {
+      const credential = JSON.parse(await file.text());
+      if (
+        credential?.app !== 'Nightshift Studio'
+        || credential?.format !== 1
+        || typeof credential.username !== 'string'
+        || typeof credential.recoveryKey !== 'string'
+      ) {
+        throw new Error('Choose a valid Nightshift recovery-key file.');
+      }
+      const { user } = await apiRequest('/api/recover', {
+        method: 'POST',
+        body: JSON.stringify({ username: credential.username, recoveryKey: credential.recoveryKey })
+      });
+      const { songs: accountSongs } = await apiRequest('/api/songs');
+      if (!Array.isArray(accountSongs)) throw new Error('The account song library is invalid.');
+      setSongs(accountSongs);
+      setLibraryReady(true);
+      setAuthUser(user);
+      setAuthUsername(user.username);
+      setAuthPassword('');
+      setRecoveryMode(false);
+    } catch (error) {
+      setAuthError(error instanceof SyntaxError ? 'That file is not valid recovery-key JSON.' : error.message);
+    } finally {
+      setAuthBusy(false);
+      setAuthReady(true);
+    }
+  };
+
+  const downloadRecoveryKey = async () => {
+    if (!window.confirm('Generate a new recovery key file? This replaces any previously generated file, which will stop working. Save the download somewhere private.')) return;
+    setAuthBusy(true);
+    try {
+      const { recoveryKey } = await apiRequest('/api/recovery-key', { method: 'POST', body: '{}' });
+      const credential = {
+        app: 'Nightshift Studio',
+        format: 1,
+        username: authUser.username,
+        recoveryKey,
+        createdAt: new Date().toISOString()
+      };
+      const url = URL.createObjectURL(new Blob([JSON.stringify(credential, null, 2)], { type: 'application/json' }));
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `nightshift-${authUser.username}-recovery-key.json`;
+      link.click();
+      window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+      notify('Recovery key downloaded — keep it private');
+    } catch (error) {
+      notify(`Could not generate recovery key: ${error.message}`);
+    } finally {
+      setAuthBusy(false);
+    }
+  };
+
+  const signOut = async () => {
+    setAuthBusy(true);
+    try {
+      await apiRequest('/api/logout', { method: 'POST', body: '{}' });
+      setAuthUser(null);
+      setSongs([]);
+      setLibraryReady(false);
+      setShowLibrary(false);
+      setShowGallery(false);
+      setPublicSongs([]);
+      setAuthPassword('');
+      setAuthError('');
+    } catch (error) {
+      setToast(`Could not sign out: ${error.message}`);
+    } finally {
+      setAuthBusy(false);
+    }
+  };
+
+  if (!authReady || !authUser) {
+    return <main className="auth-page">
+      <div className="auth-card">
+        <div className="auth-brand"><span className="brand-mark"><StudioMark className="studio-mark-svg" /></span><span>NIGHTSHIFT <b>STUDIO</b></span></div>
+        <span className="auth-kicker">YOUR PRIVATE SOUND SPACE</span>
+        <h1>{recoveryMode ? 'Recover your account' : authMode === 'register' ? 'Create your account' : 'Welcome back'}</h1>
+        <p className="auth-description">{recoveryMode ? 'Upload the Nightshift recovery-key file you downloaded while signed in. It restores access without your password.' : authMode === 'register' ? 'Make an account to keep your songs private and available whenever you sign in. You choose if any song is shared.' : 'Sign in to open your personal song library and studio.'}</p>
+        {!authReady
+          ? <div className="auth-connecting" role="status">CONNECTING TO YOUR STUDIO…</div>
+          : recoveryMode
+            ? <div className="auth-form">
+                <span className="auth-hint">Select the Nightshift recovery-key JSON file from your device.</span>
+                <input ref={recoveryFileInputRef} hidden type="file" accept=".json,application/json" onChange={recoverWithKeyFile} disabled={authBusy} />
+              <small className="auth-hint">The recovery file grants access to this account. Never share it or send it by email.</small>
+              {authError && <div className="auth-error" role="alert">{authError}</div>}
+              <button className="auth-submit" type="button" onClick={() => recoveryFileInputRef.current?.click()} disabled={authBusy}>{authBusy ? 'VERIFYING…' : 'UPLOAD RECOVERY KEY'}</button>
+            </div>
+            : <form className="auth-form" onSubmit={submitAuth}>
+              <label>USERNAME<input autoComplete="username" name="username" minLength="3" maxLength="24" pattern="[A-Za-z0-9_-]{3,24}" value={authUsername} onChange={event => setAuthUsername(event.target.value)} required /></label>
+              <label>PASSWORD<input autoComplete={authMode === 'register' ? 'new-password' : 'current-password'} name="password" type="password" minLength={authMode === 'register' ? 10 : 1} maxLength="1024" value={authPassword} onChange={event => setAuthPassword(event.target.value)} required /></label>
+              {authMode === 'register' && <small className="auth-hint">Usernames: 3–24 letters, numbers, _ or -. Password: at least 10 characters.</small>}
+              {authError && <div className="auth-error" role="alert">{authError}</div>}
+              <button className="auth-submit" type="submit" disabled={authBusy}>{authBusy ? 'PLEASE WAIT…' : authMode === 'register' ? 'CREATE ACCOUNT' : 'SIGN IN'}</button>
+            </form>}
+        {authReady && authMode === 'login' && <button className="auth-mode-toggle" onClick={() => {setRecoveryMode(value => !value); setAuthError('');}} disabled={authBusy}>
+          {recoveryMode ? 'Back to password sign in' : 'Forgot your password? Upload a recovery key'}
+        </button>}
+        {authReady && <button className="auth-mode-toggle" onClick={() => {setRecoveryMode(false); setAuthMode(mode => mode === 'register' ? 'login' : 'register'); setAuthError(''); setAuthPassword('');}} disabled={authBusy}>
+          {authMode === 'register' ? 'Already have an account? Sign in' : 'New here? Create an account'}
+        </button>}
+        <a className="auth-help-button" href="mailto:lpo5467899@gmail.com?subject=Nightshift%20Studio%20account%20help&body=Please%20describe%20the%20issue.%20Do%20not%20include%20your%20password%20or%20recovery%20key.">ACCOUNT HELP · EMAIL SUPPORT</a>
+        <p className="auth-security-note">Passwords are protected with PBKDF2 hashing. Recovery files grant account access; keep yours private. Songs stay private unless you publish them.</p>
+      </div>
+    </main>;
+  }
 
   return <div className="studio">
     <header className="topbar">
-      <div className="brand"><span className="brand-mark">N</span><span>NIGHTSHIFT <b>STUDIO</b></span></div>
+      <div className="brand"><span className="brand-mark"><StudioMark className="studio-mark-svg" /></span><span>NIGHTSHIFT <b>STUDIO</b></span></div>
       <input className="project-name" value={projectName} onChange={e => setProjectName(e.target.value)} aria-label="Project name" />
       <div className="top-actions">
+        <span className="account-badge" title="Signed in account">{authUser.username}</span>
+        <button className="icon-button recovery-key-button" onClick={downloadRecoveryKey} disabled={authBusy} title="Download a secure account-recovery file">RECOVERY KEY</button>
+        <button className="icon-button" onClick={signOut} disabled={authBusy}>SIGN OUT</button>
         <button className="icon-button save-song-button" title="Save this song in your library" onClick={saveSong}>SAVE SONG</button>
         <button className="icon-button" title="Browse saved songs" onClick={() => setShowLibrary(value => !value)}>MY SONGS ({songs.length})</button>
+        <button className="icon-button gallery-button" title="Browse songs their owners have published" onClick={openPublicGallery}>PUBLIC GALLERY</button>
         <button className="icon-button" title="Start a new song" onClick={newSong}>NEW SONG</button>
+        <button className="icon-button" title="View the Nightshift Studio starting logo" onClick={showStartingLogo}>VIEW LOGO</button>
         <button className="icon-button" title="Download project" onClick={downloadProject}>PROJECT</button>
         <button className="icon-button" onClick={() => fileInputRef.current.click()}>IMPORT</button>
         <input ref={fileInputRef} hidden type="file" accept=".json,.nightshift" onChange={importProject} />
@@ -341,8 +718,10 @@ function App() {
       <section className="transport">
         <button className={`play-button ${playing ? 'active' : ''}`} onClick={play} aria-label={playing ? 'Stop' : 'Play'}>{playing ? '■' : '▶'}</button>
         <button className="transport-button" onClick={stop} title="Stop">■</button>
-        <div className="tempo"><span>TEMPO</span><input type="number" min="40" max="240" value={bpm} onChange={e => setBpm(Number(e.target.value))} /><small>BPM</small></div>
+        <div className="tempo"><span>TEMPO</span><input type="number" min="40" max="240" value={bpm} onChange={e => setBpm(Math.min(240,Math.max(40,Number(e.target.value)||40)))} /><small>BPM</small><button className="tap-tempo" onClick={tapTempo}>TAP</button></div>
+        <button className={`metro-button ${metronome?'enabled':''}`} onClick={() => setMetronome(value => !value)} aria-pressed={metronome} title="Toggle metronome">METRONOME {metronome?'ON':'OFF'}</button>
         <div className="timecode">{String(currentStep < 0 ? 1 : Math.floor(currentStep / STEPS) + 1).padStart(2,'0')} : {String(currentStep < 0 ? 1 : Math.floor((currentStep % STEPS) / 4) + 1).padStart(2,'0')}</div>
+        <span className="song-duration">LENGTH {Math.floor((bars * 240) / bpm / 60)}:{String(Math.floor((bars * 240) / bpm) % 60).padStart(2,'0')}</span>
         <label className="swing-control">SWING <input type="range" min="0" max="60" value={swing} onChange={e => setSwing(Number(e.target.value))} /><span>{swing}%</span></label>
         <label className="bars-control">BARS<select value={bars} onChange={e => resizeSong(Number(e.target.value))}>{[2, 4, 8, 16, 32, 64].map(count => <option key={count} value={count}>{count}</option>)}</select></label>
         <select value={kit} onChange={e => setKit(e.target.value)}><option>Studio 808</option><option>Analog Breaks</option><option>Trap Machine</option></select>
@@ -350,7 +729,7 @@ function App() {
 
       {showLibrary && <section className="song-library">
         <div className="panel-heading">
-          <div><span className="panel-number">LIB</span><strong>YOUR SONGS</strong><span className="library-note">Saved in this browser</span></div>
+          <div><span className="panel-number">LIB</span><strong>YOUR SONGS</strong><span className="library-note">Private unless published</span></div>
           <button className="library-close" onClick={() => setShowLibrary(false)} aria-label="Close song library">×</button>
         </div>
         {songs.length === 0
@@ -358,8 +737,26 @@ function App() {
           : <div className="song-list">{songs.map(song => <article className="song-card" key={song.id}>
             <div className="song-card-info"><strong>{song.projectName || 'Untitled Session'}</strong><span>{song.bpm || 124} BPM · {new Date(song.updatedAt || Date.now()).toLocaleDateString()}</span></div>
             <button onClick={() => loadSong(song)}>OPEN</button>
-            <button className="song-delete" onClick={() => deleteSong(song.id)} aria-label={`Delete ${song.projectName || 'song'}`}>×</button>
+            <button className="song-share" onClick={() => setSongSharing(song, !song.isPublic)} disabled={sharingSongId === song.id}>{sharingSongId === song.id ? '…' : song.isPublic ? 'UNPUBLISH' : 'PUBLISH'}</button>
+            <button className="song-delete" onClick={() => deleteSong(song.id)} disabled={sharingSongId === song.id} aria-label={`Delete ${song.projectName || 'song'}`}>×</button>
           </article>)}</div>}
+      </section>}
+
+      {showGallery && <section className="song-library public-gallery">
+        <div className="panel-heading">
+          <div><span className="panel-number">PUB</span><strong>PUBLIC GALLERY</strong><span className="library-note">Only songs owners chose to publish</span></div>
+          <button className="library-close" onClick={() => setShowGallery(false)} aria-label="Close public gallery">×</button>
+        </div>
+        {galleryLoading
+          ? <div className="library-empty" role="status">Loading the public gallery…</div>
+          : galleryError
+            ? <div className="library-empty gallery-error" role="alert">{galleryError}</div>
+            : publicSongs.length === 0
+              ? <div className="library-empty">No published songs yet. You can publish one from your library.</div>
+              : <div className="song-list">{publicSongs.map(song => <article className="song-card" key={`${song.sharedBy}-${song.id}`}>
+                <div className="song-card-info"><strong>{song.projectName || 'Untitled Session'}</strong><span>BY {song.sharedBy} · {song.bpm || 124} BPM</span></div>
+                <button onClick={() => loadSong(song, true)}>OPEN COPY</button>
+              </article>)}</div>}
       </section>}
 
       <section className="sequencer-panel">
@@ -378,7 +775,7 @@ function App() {
         <div className="piano-roll">
           {NOTES.map(({name,frequency}, index) => <button key={name} className={`piano-key ${name.includes('#')?'black':''} ${activeKeys.includes(name)?'active':''}`} onClick={() => playNote(frequency,name)} aria-label={`Play ${name} (${NOTE_KEYS[index].toUpperCase()})`}>{name}<small>{NOTE_KEYS[index].toUpperCase()}</small></button>)}
         </div>
-        <div className="melody-heading"><strong>PIANO ROLL</strong><span>Click cells to add or remove notes · {bars} bars</span><button onClick={() => setSynthGrid(NOTES.map(() => Array(totalSteps).fill(false)))}>CLEAR NOTES</button></div>
+        <div className="melody-heading"><strong>PIANO ROLL</strong><span>Click cells to add or remove notes · {bars} bars</span><button onClick={generateMelody}>GENERATE MELODY</button><button onClick={() => setSynthGrid(NOTES.map(() => Array(totalSteps).fill(false)))}>CLEAR NOTES</button></div>
         <div className="melody-scroll"><div className="melody-grid" style={{'--total-steps': totalSteps, '--grid-width': `${totalSteps * 42}px`}}>
           <div className="melody-step-labels"><span className="note-name">NOTE</span>{Array.from({length:totalSteps},(_,i)=><span key={i} className={`${i%4===0?'bar-start':''} ${i%STEPS===0?'measure-start':''}`}>{i%4===0 ? `${Math.floor(i/STEPS)+1}.${Math.floor((i%STEPS)/4)+1}` : ''}</span>)}</div>
           {NOTES.slice().reverse().map(({name}, reverseIndex) => {
@@ -404,6 +801,60 @@ function App() {
       </section>
     </main>
     {toast && <div className="toast">{toast}</div>}
+    <a className="feedback-button" href="mailto:lpo5467899@gmail.com?subject=nightshift%20studio%20feedback%20%2F%20BugReport" aria-label="Send Nightshift Studio feedback or report a bug by email">
+      <span className="feedback-icon" aria-hidden="true">✉</span>
+      <span><strong>FEEDBACK / BUG REPORT</strong><small>Help make Nightshift better</small></span>
+    </a>
+    {showIntro && <div className={`intro-screen ${logoPinned?'persistent-logo':''} ${introClosing?'is-closing':''}`} role="dialog" aria-modal="true" aria-label="Nightshift Studio logo">
+      <div className="intro-grain" />
+      <div className="intro-blueprint" aria-hidden="true">
+        <span className="blueprint-ring ring-one" /><span className="blueprint-ring ring-two" /><span className="blueprint-ring ring-three" />
+        <span className="blueprint-cross cross-one" /><span className="blueprint-cross cross-two" />
+        <span className="blueprint-label label-top">NS—001 / AUDIO SYSTEMS</span>
+        <span className="blueprint-label label-bottom">NIGHT FREQUENCY · 44° 08′</span>
+      </div>
+      <div className="intro-content">
+        <div className="intro-brand-lockup">
+          <div className="intro-mark-wrap"><span className="intro-mark-aura" /><StudioMark className="intro-mark-svg" /></div>
+          <span className="intro-kicker">INDEPENDENT SOUND LAB · EST. AFTER HOURS</span>
+          <h1>NIGHTSHIFT <span>STUDIO</span></h1>
+          <p>MAKE SOMETHING THAT FEELS LIKE 2 AM.</p>
+        </div>
+        <div className="intro-equalizer" aria-hidden="true">
+          {Array.from({ length: 42 }, (_, index) => <i key={index} style={{'--bar-index': index, '--bar-height': `${14 + ((index * 17 + index * index * 3) % 64)}%`}} />)}
+        </div>
+        <div className="intro-loading">
+          <div className="intro-loading-copy"><span>{logoPinned?'NIGHTSHIFT STUDIO LOGO':'PREPARING YOUR SOUND SPACE'}</span><span>{logoPinned?'DISPLAY MODE':'READY WHEN YOU ARE'}</span></div>
+          <div className="intro-progress"><span /></div>
+          <div className="intro-footer"><span>{logoPinned?'PRESS ESC TO CLOSE':'DRUMS · KEYS · IDEAS'}</span><button onClick={closeIntro}>{logoPinned?'CLOSE LOGO':'ENTER STUDIO'} <span aria-hidden="true">{logoPinned?'×':'↗'}</span></button></div>
+        </div>
+      </div>
+    </div>}
+    {operationLoading && <div className={`intro-screen operation-screen ${operationClosing?'is-closing':''}`} role="status" aria-live="polite" aria-busy={!operationClosing} aria-label={operationLoading.title}>
+      <div className="intro-grain" />
+      <div className="intro-blueprint" aria-hidden="true">
+        <span className="blueprint-ring ring-one" /><span className="blueprint-ring ring-two" /><span className="blueprint-ring ring-three" />
+        <span className="blueprint-cross cross-one" /><span className="blueprint-cross cross-two" />
+        <span className="blueprint-label label-top">NS—001 / LIVE WORKFLOW</span>
+        <span className="blueprint-label label-bottom">PLEASE KEEP THIS WINDOW OPEN</span>
+      </div>
+      <div className="intro-content operation-content">
+        <div className="intro-brand-lockup">
+          <div className="intro-mark-wrap"><span className="intro-mark-aura" /><StudioMark className="intro-mark-svg" /></div>
+          <span className="intro-kicker">NIGHTSHIFT STUDIO · AUDIO SYSTEMS</span>
+          <h1>{operationLoading.title.split(' ')[0]} <span>{operationLoading.title.split(' ').slice(1).join(' ')}</span></h1>
+          <p>{operationLoading.detail}</p>
+        </div>
+        <div className="intro-equalizer" aria-hidden="true">
+          {Array.from({ length: 42 }, (_, index) => <i key={index} style={{'--bar-index': index, '--bar-height': `${14 + ((index * 17 + index * index * 3) % 64)}%`}} />)}
+        </div>
+        <div className="intro-loading">
+          <div className="intro-loading-copy"><span>PROCESSING YOUR SESSION</span><span className="operation-pulse">IN PROGRESS</span></div>
+          <div className="intro-progress operation-progress"><span /></div>
+          <div className="intro-footer"><span>DRUMS · KEYS · IDEAS</span><span className="operation-mark">✳ RENDER ENGINE ACTIVE</span></div>
+        </div>
+      </div>
+    </div>}
   </div>
 }
 export default App;
