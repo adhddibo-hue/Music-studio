@@ -1,0 +1,11 @@
+{
+  "name": "Nightshift Studio",
+  "forwardPorts": [8000],
+  "portsAttributes": {
+    "8000": {
+      "label": "Nightshift Studio",
+      "onAutoForward": "openBrowser",
+      "protocol": "http"
+    }
+  }
+}

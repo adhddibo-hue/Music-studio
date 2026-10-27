@@ -1,0 +1,22 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "Nightshift Studio Server",
+			"type": "shell",
+			"command": "python3",
+			"args": [
+				"server.py",
+				"--host",
+				"0.0.0.0",
+				"--port",
+				"8000"
+			],
+			"isBackground": true,
+			"runOptions": {
+				"runOn": "folderOpen"
+			},
+			"problemMatcher": []
+		}
+	]
+}

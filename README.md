@@ -7,18 +7,18 @@ A browser-based beat and recording studio built with React and Web Audio. **Vers
 ```bash
 npm install
 npm run build
-python3 -m http.server 8000 --bind 0.0.0.0 --directory dist
-```
-
-Open `http://localhost:8000`. This static-hosting option saves songs in the current browser and device.
-
-For accounts, server-side song storage, and the public gallery, use the app server instead:
-
-```sh
 python3 server.py --host 0.0.0.0 --port 8000
 ```
 
-The server serves the already-built `dist/` frontend, so run `npm run build` after frontend changes. For Vite development, start `python3 server.py --host 127.0.0.1 --port 8000` and `npm run dev` in separate terminals; the Vite dev server proxies API requests to port 8000.
+Open `http://localhost:8000` when running the server on the same computer as your browser. In GitHub Codespaces, the workspace forwards port **8000** automatically; open **Ports → Nightshift Studio → Open in Browser**. `localhost` on your own computer does not point to the Codespace. If port 8000 is already running, do not start a second server on it.
+
+For static hosting without the account API, you can instead run:
+
+```sh
+python3 -m http.server 8000 --bind 0.0.0.0 --directory dist
+```
+
+The app server serves the already-built `dist/` frontend, so run `npm run build` after frontend changes. For Vite development, start `python3 server.py --host 127.0.0.1 --port 8000` and `npm run dev` in separate terminals; the Vite dev server proxies API requests to port 8000.
 
 ## Features
 
