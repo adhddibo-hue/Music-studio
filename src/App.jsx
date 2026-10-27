@@ -13,22 +13,28 @@ const DRUMS = [
 const NOTES = ['C3', 'C#3', 'D3', 'D#3', 'E3', 'F3', 'F#3', 'G3', 'G#3', 'A3', 'A#3', 'B3', 'C4', 'C#4', 'D4', 'D#4']
   .map((name, index) => ({ name, frequency: 130.81 * 2 ** (index / 12) }));
 const NOTE_KEYS = ['a', 'w', 's', 'e', 'd', 'f', 't', 'g', 'y', 'h', 'u', 'j', 'k', 'o', 'l', 'p'];
-const INTRO_TAGLINES = [
-  'Make something that feels like 2 a.m.',
-  'Turn the quiet into a hook.',
-  'One more loop. One more idea.',
-  'Find your after-hours sound.',
-  'Let the beat lead somewhere new.',
-  'Small idea. Full-volume feeling.',
-  'Your next favorite sound starts here.',
-  'Stay up for the good part.',
-  'Build a world one beat at a time.',
-  'Made for the hours after dark.'
+const INTRO_TAGLINE_STYLES = [
+  'velvet', 'neon', 'hushed', 'electric', 'midnight', 'weightless', 'glowing', 'dreamlike', 'restless', 'after-hours'
 ];
+const INTRO_TAGLINE_SOUNDS = [
+  'beat', 'bassline', 'melody', 'rhythm', 'loop', 'chord', 'hook', 'sound', 'track', 'groove'
+];
+const INTRO_TAGLINE_FRAMES = [
+  (style, sound) => `Make a ${style} ${sound} after dark.`,
+  (style, sound) => `Find a ${style} ${sound} beneath city lights.`,
+  (style, sound) => `Build a ${style} ${sound} one beat at a time.`
+];
+const INTRO_TAGLINES = INTRO_TAGLINE_FRAMES.flatMap(frame =>
+  INTRO_TAGLINE_STYLES.flatMap(style => INTRO_TAGLINE_SOUNDS.map(sound => frame(style, sound)))
+);
 
 function chooseIntroTagline(previous) {
   const choices = INTRO_TAGLINES.filter(tagline => tagline !== previous);
   return choices[Math.floor(Math.random() * choices.length)];
+}
+
+function chooseIntroDuration(random = Math.random) {
+  return 5000 + Math.floor(random() * 25001);
 }
 
 function StudioMark({ className = '' }) {
@@ -105,6 +111,7 @@ function App() {
   const [introClosing, setIntroClosing] = useState(false);
   const [logoPinned, setLogoPinned] = useState(false);
   const [introTagline, setIntroTagline] = useState(() => chooseIntroTagline());
+  const [introDuration] = useState(chooseIntroDuration);
   const [projectNameFocused, setProjectNameFocused] = useState(false);
   const [projectNameOverflows, setProjectNameOverflows] = useState(false);
   const [projectNameScrollWidth, setProjectNameScrollWidth] = useState(0);
@@ -213,8 +220,7 @@ function App() {
   };
 
   useEffect(() => {
-    const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-    introAutoTimerRef.current = window.setTimeout(closeIntro, reducedMotion ? 700 : 6000);
+    introAutoTimerRef.current = window.setTimeout(closeIntro, introDuration);
     const handleKeyDown = event => { if (event.key === 'Escape') closeIntro(); };
     window.addEventListener('keydown', handleKeyDown);
     return () => {
@@ -224,7 +230,7 @@ function App() {
       window.clearTimeout(operationExitTimerRef.current);
       window.removeEventListener('keydown', handleKeyDown);
     };
-  }, []);
+  }, [introDuration]);
 
   useEffect(() => {
     if (!showIntro || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return undefined;
@@ -1174,7 +1180,7 @@ function App() {
         {showFeedback ? <svg className="feedback-close-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18" /></svg> : <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3.75 5.5h16.5c.69 0 1.25.56 1.25 1.25v10.5c0 .69-.56 1.25-1.25 1.25H3.75c-.69 0-1.25-.56-1.25-1.25V6.75c0-.69.56-1.25 1.25-1.25Zm.42 1.5L12 12.62l7.83-5.62H4.17Zm15.83 10V8.34l-7.56 5.42a.75.75 0 0 1-.88 0L4 8.34V17h16Z" /></svg>}
       </button>
     </aside>
-    {showIntro && <div className={`intro-screen ${logoPinned?'persistent-logo':''} ${introClosing?'is-closing':''}`} role="dialog" aria-modal="true" aria-label="Nightshift Studio logo">
+    {showIntro && <div className={`intro-screen ${logoPinned?'persistent-logo':''} ${introClosing?'is-closing':''}`} style={{'--intro-duration': `${introDuration}ms`}} role="dialog" aria-modal="true" aria-label="Nightshift Studio logo">
       <div className="intro-grain" />
       <div className="intro-blueprint" aria-hidden="true">
         <span className="blueprint-ring ring-one" /><span className="blueprint-ring ring-two" /><span className="blueprint-ring ring-three" />

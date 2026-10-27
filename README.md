@@ -35,6 +35,7 @@ The server serves the already-built `dist/` frontend, so run `npm run build` aft
 - JSON project export/import
 - Full-length WAV mix export of the selected song
 - Large feedback and bug-report email button
+- Intro screen with 300 rotating music-making taglines and a randomized 5–30 second duration; choose **ENTER STUDIO** to skip it
 
 ## How to use it
 
