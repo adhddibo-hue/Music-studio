@@ -23,6 +23,7 @@ SESSION_LIFETIME = 30 * 24 * 60 * 60
 MAX_REQUEST_BYTES = 5 * 1024 * 1024
 USERNAME_PATTERN = re.compile(r"^[a-zA-Z0-9_-]{3,24}$")
 COOKIE_SECURE = os.environ.get("NIGHTSHIFT_COOKIE_SECURE", "0") == "1"
+SHARED_TEST_ACCOUNT = os.environ.get("NIGHTSHIFT_SHARED_TEST_ACCOUNT", "0") == "1"
 PUBLIC_SCHEME = os.environ.get(
     "NIGHTSHIFT_PUBLIC_SCHEME", "https" if COOKIE_SECURE else "http"
 )
@@ -72,6 +73,30 @@ def initialize_database():
             CREATE INDEX IF NOT EXISTS sessions_expiry ON sessions(expires_at);
             """
         )
+        if SHARED_TEST_ACCOUNT:
+            user = connection.execute(
+                "SELECT id FROM users WHERE username = ? COLLATE NOCASE",
+                ("GB3",),
+            ).fetchone()
+            if user is None:
+                salt = secrets.token_bytes(16)
+                password_hash = hashlib.pbkdf2_hmac(
+                    "sha256", secrets.token_bytes(32), salt, PBKDF2_ITERATIONS
+                )
+                cursor = connection.execute(
+                    """
+                    INSERT INTO users(username, password_hash, password_salt, created_at)
+                    VALUES (?, ?, ?, ?)
+                    """,
+                    ("GB3", password_hash, salt, int(time.time())),
+                )
+                user_id = cursor.lastrowid
+            else:
+                user_id = user["id"]
+            connection.execute(
+                "INSERT OR IGNORE INTO song_libraries(user_id, songs_json, updated_at) VALUES (?, '[]', ?)",
+                (user_id, int(time.time())),
+            )
 
 
 class StudioHandler(SimpleHTTPRequestHandler):
@@ -115,12 +140,25 @@ class StudioHandler(SimpleHTTPRequestHandler):
         if not origin:
             return True
         parsed_origin = urlsplit(origin)
+        forwarded_scheme = self.headers.get("X-Forwarded-Proto", "").split(",", 1)[0].strip().lower()
+        forwarded_host = self.headers.get("X-Forwarded-Host", "").split(",", 1)[0].strip().lower()
+        request_scheme = forwarded_scheme if forwarded_scheme in {"http", "https"} else PUBLIC_SCHEME
+        request_host = forwarded_host or self.headers.get("Host", "").lower()
         return (
-            parsed_origin.scheme.lower() == PUBLIC_SCHEME
-            and parsed_origin.netloc.lower() == self.headers.get("Host", "").lower()
+            parsed_origin.scheme.lower() == request_scheme
+            and parsed_origin.netloc.lower() == request_host
         )
 
+    def request_is_secure(self):
+        forwarded_scheme = self.headers.get("X-Forwarded-Proto", "").split(",", 1)[0].strip().lower()
+        return COOKIE_SECURE or forwarded_scheme == "https" or PUBLIC_SCHEME == "https"
+
     def get_user(self, connection):
+        if SHARED_TEST_ACCOUNT:
+            return connection.execute(
+                "SELECT id, username FROM users WHERE username = ? COLLATE NOCASE",
+                ("GB3",),
+            ).fetchone()
         cookies = SimpleCookie(self.headers.get("Cookie", ""))
         cookie = cookies.get("nightshift_session")
         if cookie is None:
@@ -141,13 +179,13 @@ class StudioHandler(SimpleHTTPRequestHandler):
             f"nightshift_session={token}; Path=/; HttpOnly; SameSite=Strict; "
             f"Max-Age={SESSION_LIFETIME}"
         )
-        if COOKIE_SECURE:
+        if self.request_is_secure():
             cookie += "; Secure"
         return {"Set-Cookie": cookie}
 
     def clear_session_cookie(self):
         cookie = "nightshift_session=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0"
-        if COOKIE_SECURE:
+        if self.request_is_secure():
             cookie += "; Secure"
         return {"Set-Cookie": cookie}
 
@@ -168,9 +206,15 @@ class StudioHandler(SimpleHTTPRequestHandler):
             with connect_database() as connection:
                 user = self.get_user(connection)
             if user is None:
-                self.send_json(200, {"user": None})
+                self.send_json(200, {"user": None, "sharedTestAccount": SHARED_TEST_ACCOUNT})
             else:
-                self.send_json(200, {"user": {"username": user["username"]}})
+                self.send_json(
+                    200,
+                    {
+                        "user": {"username": user["username"]},
+                        "sharedTestAccount": SHARED_TEST_ACCOUNT,
+                    },
+                )
             return
         if self.path == "/api/songs":
             with connect_database() as connection:
@@ -233,6 +277,13 @@ class StudioHandler(SimpleHTTPRequestHandler):
             return
         if not isinstance(payload, dict):
             self.send_json(400, {"error": "Invalid request."})
+            return
+        if SHARED_TEST_ACCOUNT and self.path in {
+            "/api/register",
+            "/api/login",
+            "/api/recover",
+        }:
+            self.send_json(409, {"error": "Sign-in is disabled while shared test account mode is on."})
             return
         if self.path == "/api/register":
             self.register(payload)
@@ -547,6 +598,9 @@ def main():
     server.login_attempts = {}
     server.login_attempts_lock = threading.Lock()
     print(f"Nightshift Studio listening on http://{args.host}:{args.port}")
+    if SHARED_TEST_ACCOUNT:
+        print("Warning: shared test account mode is ON. All visitors share the GB3 song library.")
+        print("Set NIGHTSHIFT_SHARED_TEST_ACCOUNT=0 to restore separate sign-in accounts.")
     if not COOKIE_SECURE:
         print("Warning: session cookies are not Secure. Use HTTPS and NIGHTSHIFT_COOKIE_SECURE=1 in production.")
     try:

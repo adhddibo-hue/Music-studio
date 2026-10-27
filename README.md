@@ -1,29 +1,24 @@
 # Nightshift Studio
 
-A browser-based beat and recording studio built with React and Web Audio.
+A browser-based beat and recording studio built with React and Web Audio. **Beta 5.0**
 
-## Run locally
+## Getting started
 
 ```bash
 npm install
 npm run build
+python3 -m http.server 8000 --bind 0.0.0.0 --directory dist
+```
+
+Open `http://localhost:8000`. This static-hosting option saves songs in the current browser and device.
+
+For accounts, server-side song storage, and the public gallery, use the app server instead:
+
+```sh
 python3 server.py --host 0.0.0.0 --port 8000
 ```
 
-Open `http://localhost:8000`. The Python server serves the production frontend and account API together. For frontend development, run the account API and Vite in two terminals:
-
-```bash
-python3 server.py --host 0.0.0.0 --port 8000
-npm run dev
-```
-
-Open the Vite URL printed by the second command. Production files are generated with:
-
-```bash
-npm run build
-```
-
-The generated files are written to `dist/`. Use `server.py` to serve them with accounts enabled; a static-only server such as `python3 -m http.server` cannot provide account sign-in or private server-side song storage.
+The server serves the already-built `dist/` frontend, so run `npm run build` after frontend changes. For Vite development, start `python3 server.py --host 127.0.0.1 --port 8000` and `npm run dev` in separate terminals; the Vite dev server proxies API requests to port 8000.
 
 ## Features
 
@@ -32,19 +27,38 @@ The generated files are written to `dist/`. Use `server.py` to serve them with a
 - Clickable piano keyboard with computer-keyboard note input
 - Tap tempo, metronome, and C-major melody generation
 - Adjustable tempo and transport controls
-- Microphone recording through the browser MediaRecorder API
+- Microphone recording with clips placeable at any bar and 16th-note step, synced to playback and WAV export
 - Mixer volume controls
-- Username/password accounts with private, server-stored song libraries
-- Downloadable recovery-key files for password-free account recovery
-- Opt-in public gallery for songs each owner chooses to share
+- Browser-local song saving and loading, with no sign-in required
+- Username/password accounts with private server-side song libraries when hosted with `server.py`
+- Optional public gallery for songs owners explicitly publish
 - JSON project export/import
 - Full-length WAV mix export of the selected song
 - Large feedback and bug-report email button
 
-## Accounts and deployment
+## How to use it
 
-Passwords are never stored in plaintext or reversibly encrypted. The server hashes them with PBKDF2-HMAC-SHA256 and a unique random salt. Login uses an HTTP-only, same-site session cookie; private songs are stored in SQLite and scoped to their owner. A song only appears in the public gallery after its owner explicitly publishes it, and owners can unpublish it at any time. The database is created at `data/nightshift.sqlite3` and is excluded from Git.
+1. **Start a track:** Press the play button to audition the default beat. Use the tempo field, tap-tempo button, metronome, swing slider, and bar selector to set a foundation.
+2. **Program drums:** Click cells in the drum grid to toggle kick, snare, hats, and clap hits. Use the preset menu for a starting pattern; randomize or clear when you want a fresh pattern.
+3. **Write a melody:** Choose Piano or Synth, click piano-roll cells to place notes, or generate a C-major melody. The computer keyboard keys shown on the piano can audition notes.
+4. **Record audio:** Allow microphone access, record a take, then choose its bar and beat position. Press play to hear clips in the arrangement.
+5. **Save and organize:** Use **SAVE SONG** and **MY SONGS** to keep, reopen, or delete arrangements. Browser-only songs stay on that browser. With the account server, sign in to keep songs in your private account library.
+6. **Share intentionally:** In the server-backed library, use **PUBLISH** to put a song in the public gallery. **UNPUBLISH** removes it. Songs are private until the owner publishes them.
+7. **Export or move a project:** **PROJECT** downloads an editable `.nightshift.json` file; **IMPORT** loads one. **EXPORT WAV** renders the arrangement to audio. Keep separate backups of important projects.
+8. **Get help:** Open the feedback button for feedback/bug reports. Use the account-help email link on the sign-in page for account issues. Never send anyone your password or recovery-key file.
 
-While signed in, use **RECOVERY KEY** to download a recovery file. Upload it from the sign-in screen to recover access without a password. Only a hash is stored on the server; generating another recovery file immediately invalidates the previous one. Treat the file like a password: anyone with it can access the account and its private songs. Store it securely and never email it. This is an app-specific recovery credential, not a device-bound WebAuthn passkey.
+## Accounts and privacy
 
-For a public deployment, put the server behind HTTPS and set `NIGHTSHIFT_COOKIE_SECURE=1`. Keep the SQLite data directory private and backed up. Account creation currently has no email verification or password-reset flow.
+Account registration is available when using `server.py`; usernames are 3–24 letters, numbers, underscores, or hyphens, and passwords must be at least 10 characters. Passwords are stored as salted PBKDF2 hashes. Account data is stored in `data/nightshift.sqlite3`, which is excluded from Git. Recovery-key files grant account access; store them securely. The public gallery only shows songs owners have chosen to publish.
+
+Shared test-account mode is off by default. To temporarily bypass sign-in and let all visitors share the `GB3` library, run `NIGHTSHIFT_SHARED_TEST_ACCOUNT=1 python3 server.py --host 0.0.0.0 --port 8000`. Everyone can view, change, publish, and delete songs in that library; do not use this mode for private deployments.
+
+For HTTPS reverse proxies, forward `X-Forwarded-Proto` and `X-Forwarded-Host` to the app server. Configure the proxy to overwrite these headers rather than pass through visitor-supplied values. Alternatively set `NIGHTSHIFT_PUBLIC_SCHEME=https` and `NIGHTSHIFT_COOKIE_SECURE=1`.
+
+## Beta notes
+
+This is a beta release. Keep project exports and database backups for important work. Browser-local libraries are tied to the browser/device; server accounts require the Python app server and are not provided by `python3 -m http.server`.
+
+## License
+
+The original Nightshift Studio project is licensed by **GeneB Productions** under the terms in [`LICENSE`](./LICENSE). Third-party libraries and assets remain under their respective licenses.
