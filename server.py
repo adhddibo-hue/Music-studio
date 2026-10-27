@@ -282,6 +282,7 @@ class StudioHandler(SimpleHTTPRequestHandler):
             "/api/register",
             "/api/login",
             "/api/recover",
+            "/api/recover-password",
         }:
             self.send_json(409, {"error": "Sign-in is disabled while shared test account mode is on."})
             return
@@ -291,6 +292,8 @@ class StudioHandler(SimpleHTTPRequestHandler):
             self.login(payload)
         elif self.path == "/api/recover":
             self.recover_account(payload)
+        elif self.path == "/api/recover-password":
+            self.reset_password_with_recovery_key(payload)
         elif self.path == "/api/logout":
             self.logout()
         elif self.path == "/api/song-sharing":
@@ -500,6 +503,62 @@ class StudioHandler(SimpleHTTPRequestHandler):
             if user is None or not hmac.compare_digest(supplied_hash, expected_hash):
                 self.send_json(401, {"error": "Recovery key is invalid. Check the file and try again."})
                 return
+            token = self.create_session(connection, user["id"])
+        self.clear_login_attempts(attempt_key)
+        self.send_json(
+            200,
+            {"user": {"username": user["username"]}},
+            self.set_session_cookie(token),
+        )
+
+    def reset_password_with_recovery_key(self, payload):
+        username = payload.get("username")
+        recovery_key = payload.get("recoveryKey")
+        new_password = payload.get("newPassword")
+        if (
+            not isinstance(username, str)
+            or not USERNAME_PATTERN.fullmatch(username)
+            or not isinstance(recovery_key, str)
+            or not 32 <= len(recovery_key) <= 128
+            or not isinstance(new_password, str)
+            or not 10 <= len(new_password) <= 1024
+        ):
+            self.send_json(
+                400,
+                {"error": "Use a valid recovery file and a password of at least 10 characters."},
+            )
+            return
+        attempt_key, retry_after = self.check_login_rate_limit(username)
+        if retry_after is not None:
+            self.send_rate_limit_error(retry_after)
+            return
+        supplied_hash = hashlib.sha256(recovery_key.encode("utf-8")).digest()
+        with connect_database() as connection:
+            user = connection.execute(
+                """
+                SELECT users.id, users.username, recovery_keys.key_hash
+                FROM users LEFT JOIN recovery_keys ON recovery_keys.user_id = users.id
+                WHERE users.username = ? COLLATE NOCASE
+                """,
+                (username,),
+            ).fetchone()
+            expected_hash = user["key_hash"] if user and user["key_hash"] else bytes(32)
+            if user is None or not hmac.compare_digest(supplied_hash, expected_hash):
+                self.send_json(
+                    401,
+                    {"error": "Recovery key is invalid. Check the file and try again."},
+                )
+                return
+            salt = secrets.token_bytes(16)
+            password_hash = hashlib.pbkdf2_hmac(
+                "sha256", new_password.encode("utf-8"), salt, PBKDF2_ITERATIONS
+            )
+            connection.execute(
+                "UPDATE users SET password_hash = ?, password_salt = ? WHERE id = ?",
+                (password_hash, salt, user["id"]),
+            )
+            connection.execute("DELETE FROM recovery_keys WHERE user_id = ?", (user["id"],))
+            connection.execute("DELETE FROM sessions WHERE user_id = ?", (user["id"],))
             token = self.create_session(connection, user["id"])
         self.clear_login_attempts(attempt_key)
         self.send_json(

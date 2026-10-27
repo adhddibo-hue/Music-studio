@@ -325,6 +325,7 @@ button { cursor:pointer; }
 .auth-form input { height:42px; padding:0 12px; border:1px solid #4a293a; outline:none; background:#0b070a; color:#fff0f7; font:13px 'Manrope',sans-serif; letter-spacing:0; }
 .auth-form input:focus { border-color:#ff2e93; box-shadow:0 0 0 2px #ff2e9325; }
 .auth-hint,.auth-security-note { color:#977989; font-size:10px; line-height:1.6; }
+.auth-key-selected { padding:10px 12px; border:1px solid #6b2b4d; background:#1b0e18; color:#ffb5d5; font:9px 'DM Mono',monospace; letter-spacing:.6px; overflow-wrap:anywhere; }
 .auth-error { padding:10px 12px; border:1px solid #9a3457; background:#48132455; color:#ffb4ca; font-size:11px; line-height:1.5; }
 .auth-submit { min-height:44px; border:1px solid #ff7aba; background:linear-gradient(120deg,#ff4aa2,#eb0876); color:#210713; font-size:11px; font-weight:800; letter-spacing:1px; box-shadow:0 0 20px #ff2e9333; }
 .auth-submit:hover:not(:disabled) { filter:brightness(1.12); box-shadow:0 0 26px #ff2e9366; }

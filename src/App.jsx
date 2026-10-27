@@ -97,6 +97,10 @@ function App() {
   const [authError, setAuthError] = useState('');
   const [authBusy, setAuthBusy] = useState(false);
   const [recoveryMode, setRecoveryMode] = useState(false);
+  const [recoveryCredential, setRecoveryCredential] = useState(null);
+  const [recoveryAction, setRecoveryAction] = useState(null);
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmNewPassword, setConfirmNewPassword] = useState('');
   const [sessionResolved, setSessionResolved] = useState(false);
   const [operationLoading, setOperationLoading] = useState(null);
   const [operationClosing, setOperationClosing] = useState(false);
@@ -206,14 +210,12 @@ function App() {
     const restoreSession = async () => {
       try {
         const { user, sharedTestAccount: isSharedTestAccount = false } = await apiRequest('/api/session');
-        if (!cancelled) {
-          setAccountApiAvailable(true);
-          setSharedTestAccount(isSharedTestAccount);
-        }
         if (!user) return;
         const { songs: serverSongs } = await apiRequest('/api/songs');
         if (!Array.isArray(serverSongs)) throw new Error('The saved song library is invalid.');
         if (!cancelled) {
+          setAccountApiAvailable(true);
+          setSharedTestAccount(isSharedTestAccount);
           setSongs(serverSongs);
           setLibraryReady(true);
           setServerUser(user);
@@ -246,9 +248,11 @@ function App() {
           console.error('Could not sync the shared song library.', error);
           if (error.status === 401) {
             setServerUser(null);
-            setSongs([]);
+            setAccountApiAvailable(false);
+            setSharedTestAccount(false);
+            setSongs(readBrowserSongs());
             setLibraryReady(false);
-            setAuthError('Your session expired. Sign in again to access your account songs.');
+            setToast('Your account session expired. Using browser-local songs.');
           } else {
             setToast(`Could not sync songs: ${error.message}`);
           }
@@ -760,7 +764,6 @@ function App() {
     const file = event.target.files?.[0];
     event.target.value = '';
     if (!file) return;
-    setAuthBusy(true);
     setAuthError('');
     try {
       const credential = JSON.parse(await file.text());
@@ -772,15 +775,67 @@ function App() {
       ) {
         throw new Error('Choose a valid Nightshift recovery-key file.');
       }
+      setRecoveryCredential(credential);
+      setRecoveryAction(null);
+      setNewPassword('');
+      setConfirmNewPassword('');
+    } catch (error) {
+      setAuthError(error instanceof SyntaxError ? 'That file is not valid recovery-key JSON.' : error.message);
+    }
+  };
+
+  const signInWithRecoveryKey = async () => {
+    if (!recoveryCredential) return;
+    setAuthBusy(true);
+    setAuthError('');
+    try {
       const { user } = await apiRequest('/api/recover', {
         method: 'POST',
-        body: JSON.stringify({ username: credential.username, recoveryKey: credential.recoveryKey })
+        body: JSON.stringify({
+          username: recoveryCredential.username,
+          recoveryKey: recoveryCredential.recoveryKey
+        })
       });
       await finishSignIn(user);
       setAuthUsername(user.username);
       setRecoveryMode(false);
+      setRecoveryCredential(null);
     } catch (error) {
-      setAuthError(error instanceof SyntaxError ? 'That file is not valid recovery-key JSON.' : error.message);
+      setAuthError(error.message);
+    } finally {
+      setAuthBusy(false);
+    }
+  };
+
+  const changePasswordWithRecoveryKey = async event => {
+    event.preventDefault();
+    if (!recoveryCredential) return;
+    if (newPassword !== confirmNewPassword) {
+      setAuthError('The new passwords do not match.');
+      return;
+    }
+    setAuthBusy(true);
+    setAuthError('');
+    try {
+      const { user } = await apiRequest('/api/recover-password', {
+        method: 'POST',
+        body: JSON.stringify({
+          username: recoveryCredential.username,
+          recoveryKey: recoveryCredential.recoveryKey,
+          newPassword
+        })
+      });
+      await finishSignIn(user);
+      setAuthUsername(user.username);
+      setAuthPassword('');
+      setRecoveryMode(false);
+      setRecoveryCredential(null);
+      setRecoveryAction(null);
+      setNewPassword('');
+      setConfirmNewPassword('');
+      notify('Password changed. Generate a new recovery key from the studio.');
+    } catch (error) {
+      setAuthError(error.message);
     } finally {
       setAuthBusy(false);
     }
@@ -817,13 +872,16 @@ function App() {
     try {
       await apiRequest('/api/logout', { method: 'POST', body: '{}' });
       setServerUser(null);
-      setSongs([]);
+      setAccountApiAvailable(false);
+      setSharedTestAccount(false);
+      setSongs(readBrowserSongs());
       setLibraryReady(false);
       setShowLibrary(false);
       setShowGallery(false);
       setPublicSongs([]);
       setAuthPassword('');
       setAuthError('');
+      setToast('Signed out. Using browser-local songs.');
     } catch (error) {
       setToast(`Could not sign out: ${error.message}`);
     } finally {
@@ -837,13 +895,33 @@ function App() {
         <div className="auth-brand"><span className="brand-mark"><StudioMark className="studio-mark-svg" /></span><span>NIGHTSHIFT <b>STUDIO</b></span></div>
         <span className="auth-kicker">YOUR PRIVATE SOUND SPACE</span>
         <h1>{recoveryMode ? 'Recover your account' : authMode === 'register' ? 'Create your account' : 'Welcome back'}</h1>
-        <p className="auth-description">{recoveryMode ? 'Upload the recovery-key file you downloaded while signed in to restore access without your password.' : authMode === 'register' ? 'Create an account to keep your song library private and available whenever you sign in.' : 'Sign in to open your private song library and studio.'}</p>
+        <p className="auth-description">{recoveryMode ? 'Upload your recovery-key file to sign in or change your password. Never send the key by email.' : authMode === 'register' ? 'Create an account to keep your song library private and available whenever you sign in.' : 'Sign in to open your private song library and studio.'}</p>
         {recoveryMode
           ? <div className="auth-form">
-            <span className="auth-hint">Choose your Nightshift recovery-key JSON file.</span>
-            <input ref={recoveryFileInputRef} hidden type="file" accept=".json,application/json" onChange={recoverWithKeyFile} disabled={authBusy} />
-            {authError && <div className="auth-error" role="alert">{authError}</div>}
-            <button className="auth-submit" type="button" onClick={() => recoveryFileInputRef.current?.click()} disabled={authBusy}>{authBusy ? 'VERIFYING…' : 'UPLOAD RECOVERY KEY'}</button>
+            {!recoveryCredential
+              ? <>
+                <span className="auth-hint">Choose the Nightshift recovery-key JSON file saved on your device.</span>
+                <input ref={recoveryFileInputRef} hidden type="file" accept=".json,application/json" onChange={recoverWithKeyFile} disabled={authBusy} />
+                <button className="auth-submit" type="button" onClick={() => recoveryFileInputRef.current?.click()} disabled={authBusy}>CHOOSE RECOVERY KEY FILE</button>
+              </>
+              : <>
+                <div className="auth-key-selected">RECOVERY FILE READY · {recoveryCredential.username}</div>
+                {recoveryAction === 'change-password'
+                  ? <form className="auth-form" onSubmit={changePasswordWithRecoveryKey}>
+                    <label>NEW PASSWORD<input autoComplete="new-password" type="password" minLength="10" maxLength="1024" value={newPassword} onChange={event => setNewPassword(event.target.value)} required /></label>
+                    <label>CONFIRM NEW PASSWORD<input autoComplete="new-password" type="password" minLength="10" maxLength="1024" value={confirmNewPassword} onChange={event => setConfirmNewPassword(event.target.value)} required /></label>
+                    <small className="auth-hint">Changing your password revokes the recovery file and other signed-in sessions.</small>
+                    {authError && <div className="auth-error" role="alert">{authError}</div>}
+                    <button className="auth-submit" type="submit" disabled={authBusy}>{authBusy ? 'CHANGING PASSWORD…' : 'CHANGE PASSWORD'}</button>
+                  </form>
+                  : <>
+                    {authError && <div className="auth-error" role="alert">{authError}</div>}
+                    <button className="auth-submit" type="button" onClick={signInWithRecoveryKey} disabled={authBusy}>{authBusy ? 'VERIFYING…' : 'SIGN IN WITH KEY'}</button>
+                    <button className="auth-mode-toggle" type="button" onClick={() => {setRecoveryAction('change-password'); setAuthError('');}} disabled={authBusy}>CHANGE PASSWORD WITH KEY</button>
+                  </>}
+                <button className="auth-mode-toggle" type="button" onClick={() => {setRecoveryCredential(null); setRecoveryAction(null); setAuthError('');}} disabled={authBusy}>Choose a different file</button>
+              </>}
+            {authError && !recoveryAction && !recoveryCredential && <div className="auth-error" role="alert">{authError}</div>}
           </div>
           : <form className="auth-form" onSubmit={submitAuth}>
             <label>USERNAME<input autoComplete="username" name="username" minLength="3" maxLength="24" pattern={'[A-Za-z0-9_\\x2d]{3,24}'} value={authUsername} onChange={event => setAuthUsername(event.target.value)} required /></label>
@@ -858,8 +936,8 @@ function App() {
         <button className="auth-mode-toggle" onClick={() => {setRecoveryMode(false); setAuthMode(mode => mode === 'register' ? 'login' : 'register'); setAuthError(''); setAuthPassword('');}} disabled={authBusy}>
           {authMode === 'register' ? 'Already have an account? Sign in' : 'New here? Create an account'}
         </button>
-        <a className="auth-help-button" href="mailto:lpo5467899@gmail.com?subject=Nightshift%20Studio%20account%20help&body=Please%20describe%20the%20issue.%20Do%20not%20include%20your%20password%20or%20recovery%20key.">ACCOUNT HELP · EMAIL SUPPORT</a>
-        <p className="auth-security-note">Passwords are protected with PBKDF2 hashing. Recovery files grant account access; keep yours private. Songs stay private unless you publish them.</p>
+        <a className="auth-help-button" href="mailto:lpo5467899@gmail.com?subject=Nightshift%20Studio%20account%20help&body=Please%20describe%20the%20issue.%20To%20change%20your%20password%2C%20upload%20your%20recovery%20key%20in%20Nightshift%20Studio%20and%20choose%20Change%20Password.%20Never%20send%20your%20password%20or%20recovery%20key%20by%20email.">ACCOUNT HELP · EMAIL SUPPORT</a>
+        <p className="auth-security-note">To download a key: sign in, click <strong>RECOVERY KEY</strong> in the studio, and save the JSON file somewhere private. To change your password, choose “Forgot your password?”, upload that file, then choose “Change password with key.” Never email the key.</p>
       </div>
     </main>;
   }

@@ -42,14 +42,14 @@ The server serves the already-built `dist/` frontend, so run `npm run build` aft
 2. **Program drums:** Click cells in the drum grid to toggle kick, snare, hats, and clap hits. Use the preset menu for a starting pattern; randomize or clear when you want a fresh pattern.
 3. **Write a melody:** Choose Piano or Synth, click piano-roll cells to place notes, or generate a C-major melody. The computer keyboard keys shown on the piano can audition notes.
 4. **Record audio:** Allow microphone access, record a take, then choose its bar and beat position. Press play to hear clips in the arrangement.
-5. **Save and organize:** Use **SAVE SONG** and **MY SONGS** to keep, reopen, or delete arrangements. Browser-only songs stay on that browser. With the account server, sign in to keep songs in your private account library.
+5. **Save and organize:** Use **SAVE SONG** and **MY SONGS** to keep, reopen, or delete arrangements. Visitors without an active account session save songs in that browser. Existing signed-in sessions use their private account library.
 6. **Share intentionally:** In the server-backed library, use **PUBLISH** to put a song in the public gallery. **UNPUBLISH** removes it. Songs are private until the owner publishes them.
 7. **Export or move a project:** **PROJECT** downloads an editable `.nightshift.json` file; **IMPORT** loads one. **EXPORT WAV** renders the arrangement to audio. Keep separate backups of important projects.
-8. **Get help:** Open the feedback button for feedback/bug reports. Use the account-help email link on the sign-in page for account issues. Never send anyone your password or recovery-key file.
+8. **Recovery and help:** Account sign-in and recovery are temporarily unavailable to visitors without an active session. Existing signed-in users can click **RECOVERY KEY** in the top bar to save their recovery file securely. Never email a password or recovery key.
 
 ## Accounts and privacy
 
-Account registration is available when using `server.py`; usernames are 3–24 letters, numbers, underscores, or hyphens, and passwords must be at least 10 characters. Passwords are stored as salted PBKDF2 hashes. Account data is stored in `data/nightshift.sqlite3`, which is excluded from Git. Recovery-key files grant account access; store them securely. The public gallery only shows songs owners have chosen to publish.
+Sign-in and registration are temporarily bypassed for visitors without an active account session, so they can open the studio immediately. Their songs are saved only in that browser. Existing signed-in sessions continue to use their private server library; signing out returns to browser-local mode. Account registration and recovery are unavailable from the UI during this temporary bypass. Account passwords are stored as salted PBKDF2 hashes, and account data is stored in `data/nightshift.sqlite3`, which is excluded from Git.
 
 Shared test-account mode is off by default. To temporarily bypass sign-in and let all visitors share the `GB3` library, run `NIGHTSHIFT_SHARED_TEST_ACCOUNT=1 python3 server.py --host 0.0.0.0 --port 8000`. Everyone can view, change, publish, and delete songs in that library; do not use this mode for private deployments.
 
