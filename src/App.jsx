@@ -214,7 +214,7 @@ function App() {
 
   useEffect(() => {
     const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-    introAutoTimerRef.current = window.setTimeout(closeIntro, reducedMotion ? 700 : 3200);
+    introAutoTimerRef.current = window.setTimeout(closeIntro, reducedMotion ? 700 : 6000);
     const handleKeyDown = event => { if (event.key === 'Escape') closeIntro(); };
     window.addEventListener('keydown', handleKeyDown);
     return () => {
@@ -230,7 +230,7 @@ function App() {
     if (!showIntro || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return undefined;
     const interval = window.setInterval(() => {
       setIntroTagline(previous => chooseIntroTagline(previous));
-    }, 1900);
+    }, 4200);
     return () => window.clearInterval(interval);
   }, [showIntro]);
 
