@@ -1,6 +1,6 @@
 # Nightshift Studio
 
-A browser-based beat and recording studio built with React and Web Audio. **Beta 5.0**
+A browser-based beat and recording studio built with React and Web Audio. **Version 6.0**
 
 ## Getting started
 

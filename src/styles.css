@@ -198,11 +198,38 @@ button { cursor:pointer; }
   background-color:#080508;
   background-image:
     radial-gradient(ellipse at 12% 24%,#47132f66,transparent 34rem),
-    radial-gradient(ellipse at 88% 62%,#32113f45,transparent 38rem),
-    linear-gradient(#ff72b80a 1px,transparent 1px),
-    linear-gradient(90deg,#ff72b80a 1px,transparent 1px);
-  background-size:auto,auto,64px 64px,64px 64px;
-  background-position:center,center,center 70px,center 70px;
+    radial-gradient(ellipse at 88% 62%,#32113f45,transparent 38rem);
+}
+.studio::before,.studio::after {
+  position:fixed;
+  z-index:0;
+  inset:-25%;
+  content:"";
+  pointer-events:none;
+}
+.studio::before {
+  opacity:.22;
+  background:
+    radial-gradient(circle,transparent 0 32%,#ff2e9315 32.1% 32.2%,transparent 32.3% 43%,#ff72b80d 43.1% 43.2%,transparent 43.3%),
+    conic-gradient(from 12deg,transparent 0 76%,#ff2e931b 79%,#ff72b80a 81%,transparent 84% 100%);
+  mask:radial-gradient(ellipse at center,#000 20%,transparent 76%);
+  animation:editor-orbit 100s linear infinite;
+}
+.studio::after {
+  inset:0;
+  opacity:.16;
+  background:
+    linear-gradient(90deg,transparent 49.95%,#ff72b80b 50%,transparent 50.05%),
+    repeating-linear-gradient(transparent 0 4px,#ff72b803 5px,transparent 6px);
+}
+.topbar,.workspace { position:relative; z-index:1; }
+.workspace {
+  background-image:
+    linear-gradient(#ff72b808 1px,transparent 1px),
+    linear-gradient(90deg,#ff72b808 1px,transparent 1px);
+  background-size:64px 64px,64px 64px;
+  background-position:center 0,center 0;
+  background-repeat:repeat;
 }
 .topbar {
   position:relative;
@@ -289,6 +316,7 @@ button { cursor:pointer; }
 @media(prefers-reduced-motion:reduce) {
   .track-label,.grid-row,.channel-buttons button,.project-name,.top-actions button,.pattern-tools button,
   .pattern-tools select,.metro-button,.tap-tempo { transition:none; }
+  .studio::before { animation:none; }
 }
 
 .brand-mark { position:relative; width:38px; height:38px; transform:none; border:0; background:transparent; box-shadow:none; }
@@ -356,6 +384,7 @@ button { cursor:pointer; }
 .intro-footer button:hover .footer-arrow-icon { transform:translate(3px,-3px); }
 @keyframes intro-screen-in { from { opacity:0; } to { opacity:1; } }
 @keyframes intro-lockup-in { from { opacity:0; transform:translateY(15px); } to { opacity:1; transform:translateY(0); } }
+@keyframes editor-orbit { to { transform:rotate(360deg); } }
 @keyframes tagline-arrive { from { opacity:0; transform:translateY(5px); } to { opacity:1; transform:translateY(0); } }
 @keyframes blueprint-rotate { to { rotate:360deg; } }
 @keyframes blueprint-rotate-reverse { to { rotate:-360deg; } }

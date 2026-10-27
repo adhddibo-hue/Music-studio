@@ -1117,7 +1117,7 @@ function App() {
       <div className="intro-content">
         <div className="intro-brand-lockup">
           <div className="intro-mark-wrap"><span className="intro-mark-aura" /><StudioMark className="intro-mark-svg" /></div>
-          <span className="intro-kicker">GENEB PRODUCTIONS · BETA 5.0</span>
+          <span className="intro-kicker">GENEB PRODUCTIONS · VERSION 6.0</span>
           <h1>NIGHTSHIFT <span>STUDIO</span></h1>
           <p key={introTagline} className="intro-tagline">{introTagline}</p>
         </div>
@@ -1143,7 +1143,7 @@ function App() {
       <div className="intro-content operation-content">
         <div className="intro-brand-lockup">
           <div className="intro-mark-wrap"><span className="intro-mark-aura" /><StudioMark className="intro-mark-svg" /></div>
-          <span className="intro-kicker">GENEB PRODUCTIONS · BETA 5.0 · AUDIO SYSTEMS</span>
+          <span className="intro-kicker">GENEB PRODUCTIONS · VERSION 6.0 · AUDIO SYSTEMS</span>
           <h1>{operationLoading.title.split(' ')[0]} <span>{operationLoading.title.split(' ').slice(1).join(' ')}</span></h1>
           <p>{operationLoading.detail}</p>
         </div>
