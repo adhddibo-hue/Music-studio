@@ -1,6 +1,6 @@
 # Nightshift Studio
 
-A browser-based beat and recording studio built with React and Web Audio. **Version 6.0**
+A browser-based beat and recording studio built with React and Web Audio. **Version 6.3**
 
 ## Getting started
 
@@ -42,7 +42,7 @@ The server serves the already-built `dist/` frontend, so run `npm run build` aft
 2. **Program drums:** Click cells in the drum grid to toggle kick, snare, hats, and clap hits. Use the preset menu for a starting pattern; randomize or clear when you want a fresh pattern.
 3. **Write a melody:** Choose Piano or Synth, click piano-roll cells to place notes, or generate a C-major melody. The computer keyboard keys shown on the piano can audition notes.
 4. **Record audio:** Allow microphone access, record a take, then choose its bar and beat position. Press play to hear clips in the arrangement.
-5. **Save and organize:** Use **SAVE SONG** and **MY SONGS** to keep, reopen, or delete arrangements. Visitors without an active account session save songs in that browser. Existing signed-in sessions use their private account library.
+5. **Save and organize:** Name your project in the top bar; long names scroll while the field is idle and pause when you edit them. Use **SAVE SONG** and **MY SONGS** to keep, reopen, or delete arrangements. Visitors without an active account session save songs in that browser. Existing signed-in sessions use their private account library.
 6. **Share intentionally:** In the server-backed library, use **PUBLISH** to put a song in the public gallery. **UNPUBLISH** removes it. Songs are private until the owner publishes them.
 7. **Export or move a project:** **PROJECT** downloads an editable `.nightshift.json` file; **IMPORT** loads one. **EXPORT WAV** renders the arrangement to audio. Keep separate backups of important projects.
 8. **Recovery and help:** Account sign-in and recovery are temporarily unavailable to visitors without an active session. Existing signed-in users can click **RECOVERY KEY** in the top bar to save their recovery file securely. Never email a password or recovery key.

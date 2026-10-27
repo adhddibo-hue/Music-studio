@@ -305,6 +305,7 @@ button { cursor:pointer; }
 }
 .channel-buttons button:hover { border-color:var(--pink); color:#fff; }
 .project-name { transition:border-color .16s ease,color .16s ease; }
+.project-name.is-overflowing { text-align:left; }
 .top-actions button,.pattern-tools button,.pattern-tools select,.metro-button,.tap-tempo {
   transition:border-color .16s ease,background-color .16s ease,color .16s ease,box-shadow .16s ease;
 }

@@ -105,6 +105,9 @@ function App() {
   const [introClosing, setIntroClosing] = useState(false);
   const [logoPinned, setLogoPinned] = useState(false);
   const [introTagline, setIntroTagline] = useState(() => chooseIntroTagline());
+  const [projectNameFocused, setProjectNameFocused] = useState(false);
+  const [projectNameOverflows, setProjectNameOverflows] = useState(false);
+  const [projectNameScrollWidth, setProjectNameScrollWidth] = useState(0);
   const [serverUser, setServerUser] = useState(null);
   const [accountApiAvailable, setAccountApiAvailable] = useState(false);
   const [sharedTestAccount, setSharedTestAccount] = useState(false);
@@ -160,6 +163,7 @@ function App() {
   const clipSourcesRef = useRef([]);
   const fileInputRef = useRef(null);
   const recoveryFileInputRef = useRef(null);
+  const projectNameInputRef = useRef(null);
   const songRef = useRef({ grid, synthGrid, muted, bars });
   const instrumentRef = useRef(instrument);
   const metronomeRef = useRef(metronome);
@@ -229,6 +233,62 @@ function App() {
     }, 1900);
     return () => window.clearInterval(interval);
   }, [showIntro]);
+
+  useEffect(() => {
+    const input = projectNameInputRef.current;
+    if (!input) return undefined;
+    const updateOverflow = () => {
+      const context = document.createElement('canvas').getContext('2d');
+      if (!context) return;
+      const style = window.getComputedStyle(input);
+      context.font = style.font;
+      const letterSpacing = Number.parseFloat(style.letterSpacing) || 0;
+      const textWidth = context.measureText(projectName).width + letterSpacing * projectName.length;
+      const availableWidth = input.clientWidth
+        - (Number.parseFloat(style.paddingLeft) || 0)
+        - (Number.parseFloat(style.paddingRight) || 0);
+      const scrollWidth = Math.max(0, textWidth - availableWidth);
+      setProjectNameScrollWidth(scrollWidth);
+      setProjectNameOverflows(scrollWidth > 0);
+    };
+    updateOverflow();
+    window.addEventListener('resize', updateOverflow);
+    return () => window.removeEventListener('resize', updateOverflow);
+  }, [projectName]);
+
+  useEffect(() => {
+    const input = projectNameInputRef.current;
+    if (!input || !projectNameOverflows || projectNameFocused
+      || window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      if (input && !projectNameFocused) input.scrollLeft = 0;
+      return undefined;
+    }
+    let startTime;
+    let frame;
+    const tick = timestamp => {
+      if (startTime === undefined) startTime = timestamp;
+      const maxScroll = projectNameScrollWidth;
+      const elapsed = (timestamp - startTime) % 6500;
+      const startPause = 900;
+      const travelDuration = 2800;
+      const endPause = 1100;
+      const returnDuration = 350;
+      if (elapsed < startPause) {
+        input.scrollLeft = 0;
+      } else if (elapsed < startPause + travelDuration) {
+        input.scrollLeft = maxScroll * ((elapsed - startPause) / travelDuration);
+      } else if (elapsed < startPause + travelDuration + endPause) {
+        input.scrollLeft = maxScroll;
+      } else if (elapsed < startPause + travelDuration + endPause + returnDuration) {
+        input.scrollLeft = maxScroll * (1 - (elapsed - startPause - travelDuration - endPause) / returnDuration);
+      } else {
+        input.scrollLeft = 0;
+      }
+      frame = window.requestAnimationFrame(tick);
+    };
+    frame = window.requestAnimationFrame(tick);
+    return () => window.cancelAnimationFrame(frame);
+  }, [projectNameOverflows, projectNameFocused, projectNameScrollWidth, projectName]);
 
   useEffect(() => {
     let cancelled = false;
@@ -970,7 +1030,16 @@ function App() {
   return <div className="studio">
     <header className="topbar">
       <div className="brand"><span className="brand-mark"><StudioMark className="studio-mark-svg" /></span><span>NIGHTSHIFT <b>STUDIO</b></span></div>
-      <input className="project-name" value={projectName} onChange={e => setProjectName(e.target.value)} aria-label="Project name" />
+      <input
+        ref={projectNameInputRef}
+        className={`project-name ${projectNameOverflows ? 'is-overflowing' : ''}`}
+        value={projectName}
+        onChange={e => setProjectName(e.target.value)}
+        onFocus={() => setProjectNameFocused(true)}
+        onBlur={() => setProjectNameFocused(false)}
+        aria-label="Project name"
+        title={projectName}
+      />
       <div className="top-actions">
         {serverUser && <><span className="account-badge">{serverUser.username}{sharedTestAccount ? ' · SHARED' : ''}</span>{!sharedTestAccount && <><button className="icon-button recovery-key-button" onClick={downloadRecoveryKey} disabled={authBusy}>RECOVERY KEY</button><button className="icon-button" onClick={signOut} disabled={authBusy}>SIGN OUT</button></>}</>}
         <button className="icon-button save-song-button" title="Save this song in your library" onClick={saveSong}>SAVE SONG</button>
@@ -1117,7 +1186,7 @@ function App() {
       <div className="intro-content">
         <div className="intro-brand-lockup">
           <div className="intro-mark-wrap"><span className="intro-mark-aura" /><StudioMark className="intro-mark-svg" /></div>
-          <span className="intro-kicker">GENEB PRODUCTIONS · VERSION 6.0</span>
+          <span className="intro-kicker">GENEB PRODUCTIONS · VERSION 6.3</span>
           <h1>NIGHTSHIFT <span>STUDIO</span></h1>
           <p key={introTagline} className="intro-tagline">{introTagline}</p>
         </div>
@@ -1143,7 +1212,7 @@ function App() {
       <div className="intro-content operation-content">
         <div className="intro-brand-lockup">
           <div className="intro-mark-wrap"><span className="intro-mark-aura" /><StudioMark className="intro-mark-svg" /></div>
-          <span className="intro-kicker">GENEB PRODUCTIONS · VERSION 6.0 · AUDIO SYSTEMS</span>
+          <span className="intro-kicker">GENEB PRODUCTIONS · VERSION 6.3 · AUDIO SYSTEMS</span>
           <h1>{operationLoading.title.split(' ')[0]} <span>{operationLoading.title.split(' ').slice(1).join(' ')}</span></h1>
           <p>{operationLoading.detail}</p>
         </div>
