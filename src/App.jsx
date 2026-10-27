@@ -13,15 +13,31 @@ const DRUMS = [
 const NOTES = ['C3', 'C#3', 'D3', 'D#3', 'E3', 'F3', 'F#3', 'G3', 'G#3', 'A3', 'A#3', 'B3', 'C4', 'C#4', 'D4', 'D#4']
   .map((name, index) => ({ name, frequency: 130.81 * 2 ** (index / 12) }));
 const NOTE_KEYS = ['a', 'w', 's', 'e', 'd', 'f', 't', 'g', 'y', 'h', 'u', 'j', 'k', 'o', 'l', 'p'];
+const INTRO_TAGLINES = [
+  'Make something that feels like 2 a.m.',
+  'Turn the quiet into a hook.',
+  'One more loop. One more idea.',
+  'Find your after-hours sound.',
+  'Let the beat lead somewhere new.',
+  'Small idea. Full-volume feeling.',
+  'Your next favorite sound starts here.',
+  'Stay up for the good part.',
+  'Build a world one beat at a time.',
+  'Made for the hours after dark.'
+];
+
+function chooseIntroTagline(previous) {
+  const choices = INTRO_TAGLINES.filter(tagline => tagline !== previous);
+  return choices[Math.floor(Math.random() * choices.length)];
+}
 
 function StudioMark({ className = '' }) {
   return <svg className={className} viewBox="0 0 100 100" fill="none" aria-hidden="true">
     <circle className="mark-orbit mark-orbit-outer" cx="50" cy="50" r="44" />
     <circle className="mark-orbit mark-orbit-inner" cx="50" cy="50" r="35" />
-    <ellipse className="mark-sphere mark-sphere-x" cx="50" cy="50" rx="40" ry="15" transform="rotate(-32 50 50)" />
-    <ellipse className="mark-sphere mark-sphere-y" cx="50" cy="50" rx="15" ry="40" transform="rotate(32 50 50)" />
     <path className="mark-crosshair" d="M50 2v12M50 86v12M2 50h12M86 50h12" />
     <path className="mark-diamond" d="M50 17 78 33v34L50 83 22 67V33L50 17Z" />
+    <path className="mark-index" d="M47 25h6M47 75h6M29 47v6M71 47v6" />
     <path className="mark-monogram" d="M38 65V35l24 30V35" />
     <circle className="mark-node" cx="50" cy="11" r="2.2" />
     <circle className="mark-node" cx="89" cy="50" r="2.2" />
@@ -88,6 +104,7 @@ function App() {
   const [showIntro, setShowIntro] = useState(true);
   const [introClosing, setIntroClosing] = useState(false);
   const [logoPinned, setLogoPinned] = useState(false);
+  const [introTagline, setIntroTagline] = useState(() => chooseIntroTagline());
   const [serverUser, setServerUser] = useState(null);
   const [accountApiAvailable, setAccountApiAvailable] = useState(false);
   const [sharedTestAccount, setSharedTestAccount] = useState(false);
@@ -204,6 +221,14 @@ function App() {
       window.removeEventListener('keydown', handleKeyDown);
     };
   }, []);
+
+  useEffect(() => {
+    if (!showIntro || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return undefined;
+    const interval = window.setInterval(() => {
+      setIntroTagline(previous => chooseIntroTagline(previous));
+    }, 1900);
+    return () => window.clearInterval(interval);
+  }, [showIntro]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1094,7 +1119,7 @@ function App() {
           <div className="intro-mark-wrap"><span className="intro-mark-aura" /><StudioMark className="intro-mark-svg" /></div>
           <span className="intro-kicker">GENEB PRODUCTIONS · BETA 5.0</span>
           <h1>NIGHTSHIFT <span>STUDIO</span></h1>
-          <p>MAKE SOMETHING THAT FEELS LIKE 2 AM.</p>
+          <p key={introTagline} className="intro-tagline">{introTagline}</p>
         </div>
         <div className="intro-equalizer" aria-hidden="true">
           {Array.from({ length: 42 }, (_, index) => <i key={index} style={{'--bar-index': index, '--bar-height': `${14 + ((index * 17 + index * index * 3) % 64)}%`}} />)}
